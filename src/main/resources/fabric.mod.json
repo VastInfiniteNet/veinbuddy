@@ -1,11 +1,11 @@
 {
 	"schemaVersion": 1,
-	"id": "modid",
+	"id": "veinbuddy",
 	"version": "${version}",
-	"name": "Example mod",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"name": "VeinBuddy",
+	"description": "Marks areas you should dig!",
 	"authors": [
-		"Me!"
+		"sbobicus"
 	],
 	"contact": {
 		"homepage": "https://fabricmc.net/",
@@ -16,16 +16,16 @@
 	"environment": "*",
 	"entrypoints": {
 		"main": [
-			"com.example.ExampleMod"
+			"com.veinbuddy.VeinBuddy"
 		],
 		"client": [
-			"com.example.ExampleModClient"
+			"com.veinbuddy.VeinBuddyClient"
 		]
 	},
 	"mixins": [
-		"modid.mixins.json",
+		"veinbuddy.mixins.json",
 		{
-			"config": "modid.client.mixins.json",
+			"config": "veinbuddy.client.mixins.json",
 			"environment": "client"
 		}
 	],
