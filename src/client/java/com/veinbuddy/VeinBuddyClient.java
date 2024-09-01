@@ -64,12 +64,11 @@ public class VeinBuddyClient implements ClientModInitializer {
   private Map<Vec3i, Float> faders = new ConcurrentHashMap<Vec3i, Float>();
 
   private Set<Vec3i> selections = new ConcurrentSkipListSet<Vec3i>();
-  private Map<Vec3i, VertexGroup> selectionVertices = new ConcurrentHashMap<Vec3i, VertexGroup>();
+  private Map<Vec3i, WallGroup> selectionWalls = new ConcurrentHashMap<Vec3i, WallGroup>();
 
   private Set<Vec3i> digSet = new ConcurrentSkipListSet<Vec3i>();
   private Set<Vec3i> wallBlocks = new ConcurrentSkipListSet<Vec3i>();
   private Map<Vec3i, WallGroup> wallBlockWalls = new ConcurrentHashMap<Vec3i, WallGroup>();
-  private Map<Vec3i, VertexGroup> wallBlockVertices = new ConcurrentHashMap<Vec3i, VertexGroup>();
 
   @Override
   public void onInitializeClient() {
@@ -216,8 +215,6 @@ public class VeinBuddyClient implements ClientModInitializer {
 
   private void addSelection(Vec3i selection, boolean loading){
     if (!selections.contains(selection)) {
-      selections.add(selection);
-      VertexGroup group = new VertexGroup();
       float minX = selection.getX();
       float minY = selection.getY();
       float minZ = selection.getZ();
@@ -231,16 +228,17 @@ public class VeinBuddyClient implements ClientModInitializer {
       maxX += adjustment;
       maxY += adjustment;
       maxZ += adjustment;
-      group.v000 = new Vector3f(minX, minY, minZ);
-      group.v001 = new Vector3f(minX, minY, maxZ);
-      group.v010 = new Vector3f(minX, maxY, minZ);
-      group.v011 = new Vector3f(minX, maxY, maxZ);
-      group.v100 = new Vector3f(maxX, minY, minZ);
-      group.v101 = new Vector3f(maxX, minY, maxZ);
-      group.v110 = new Vector3f(maxX, maxY, minZ);
-      group.v111 = new Vector3f(maxX, maxY, maxZ);
-      selectionVertices.put(selection, group);
-      Set<Vec3i> newWallBlocks = new HashSet<Vec3i>();
+      WallGroup group = new WallGroup(true, true, true, true, true, true);
+      group.putVertex(new Vector3f(minX, minY, minZ), false, false, false);
+      group.putVertex(new Vector3f(minX, minY, maxZ), false, false, true);
+      group.putVertex(new Vector3f(minX, maxY, minZ), false, true, false);
+      group.putVertex(new Vector3f(minX, maxY, maxZ), false, true, true);
+      group.putVertex(new Vector3f(maxX, minY, minZ), true, false, false);
+      group.putVertex(new Vector3f(maxX, minY, maxZ), true, false, true);
+      group.putVertex(new Vector3f(maxX, maxY, minZ), true, true, false);
+      group.putVertex(new Vector3f(maxX, maxY, maxZ), true, true, true);
+      selectionWalls.put(selection, group);
+      selections.add(selection);
       for (int x = -1 * digRange; x <= digRange; ++x){
         for (int y = -1 * digRange; y <= digRange; ++y){
           for (int z = -1 * digRange; z <= digRange; ++z){
@@ -250,12 +248,9 @@ public class VeinBuddyClient implements ClientModInitializer {
             boolean zBound = Math.abs(z) == digRange;
             digSet.add(block);
             if (xBound || yBound || zBound)
-	      newWallBlocks.add(block);
+	      wallBlocks.add(block);
 	  }
         }
-      }
-      for (Vec3i block : newWallBlocks){
-	wallBlocks.add(block);
       }
     }
     if (!loading) {
@@ -278,7 +273,7 @@ public class VeinBuddyClient implements ClientModInitializer {
       if (!rayIntersectsSphere(pos, dir, center))
         continue;
       sIter.remove();
-      selectionVertices.remove(selectedBlock);
+      selectionWalls.remove(selectedBlock);
       if (fadingSelections.contains(selectedBlock)) {
         fadingSelections.remove(selectedBlock);
 	faders.remove(selectedBlock);
@@ -297,10 +292,10 @@ public class VeinBuddyClient implements ClientModInitializer {
               orphanedBlocks.add(block);
 	    if (digSet.contains(block))
               newWallBlocks.add(block);
-	    }
 	  }
 	}
       }
+    }
     Iterator<Vec3i> orphanIterator = orphanedBlocks.iterator();
     while(orphanIterator.hasNext()){
       Vec3i orphan = orphanIterator.next();
@@ -334,259 +329,222 @@ public class VeinBuddyClient implements ClientModInitializer {
 
   private void updateWalls() {
     Iterator<Vec3i> iter = wallBlocks.iterator();
-    while (iter.hasNext()){
+    while (iter.hasNext()) {
       Vec3i block = iter.next();
 
       if (!digSet.contains(block)){
-	wallBlockWalls.remove(block);
 	iter.remove();
+	wallBlockWalls.remove(block);
 	continue;
       }
 
-      WallGroup group = wallBlockWalls.get(block);
-      if (null == group) {
-        group = new WallGroup(block);
-        wallBlockWalls.put(block, group);
-      }
+      WallGroup group = updateWall(block);
 
-      boolean west =  !digSet.contains(block.add(-1,  0,  0));
-      boolean east =  !digSet.contains(block.add( 1,  0,  0));
-      boolean down =  !digSet.contains(block.add( 0, -1,  0));
-      boolean up =    !digSet.contains(block.add( 0,  1,  0));
-      boolean south = !digSet.contains(block.add( 0,  0, -1));
-      boolean north = !digSet.contains(block.add( 0,  0,  1));
-
-      if (up)
-        group.add(WallType.UP);
-      if (down)
-        group.add(WallType.DOWN);
-      if (north)
-        group.add(WallType.NORTH);
-      if (east)
-        group.add(WallType.EAST);
-      if (south)
-        group.add(WallType.SOUTH);
-      if (west)
-        group.add(WallType.WEST);
-
-      if (!(up || down || north || east || south || west)){
-	wallBlockWalls.remove(block);
+      if (null == group.getWestWall() && null == group.getEastWall() &&
+	  null == group.getDownWall() && null == group.getUpWall() &&
+	  null == group.getSouthWall() && null == group.getNorthWall()) {
 	iter.remove();
+	wallBlockWalls.remove(block);
 	continue;
       }
 
-      VertexGroup vertexGroup = wallBlockVertices.get(block);
-      if (null == vertexGroup) {
-        vertexGroup = new VertexGroup();
-        wallBlockVertices.put(block, vertexGroup);
-      }
-
-      float minX = block.getX();
-      float minY = block.getY();
-      float minZ = block.getZ();
-      float maxX = minX + 1.0f;
-      float maxY = minY + 1.0f;
-      float maxZ = minZ + 1.0f;
-      
-      float adjustment = 0.01f;
-      float xValEast = maxX-adjustment;
-      float yValUp = maxY-adjustment;
-      float zValNorth = maxZ-adjustment;
-      float xValWest = minX+adjustment;
-      float yValDown = minY+adjustment;
-      float zValSouth = minZ+adjustment;
-
-      float xValEastDig = maxX+adjustment;
-      float yValUpDig = maxY+adjustment;
-      float zValNorthDig = maxZ+adjustment;
-      float xValWestDig = minX-adjustment;
-      float yValDownDig = minY-adjustment;
-      float zValSouthDig = minZ-adjustment;
-
-      if (up) {
-	vertexGroup.v010 = new Vector3f(minX, yValUp, minZ);
-	vertexGroup.v011 = new Vector3f(minX, yValUp, maxZ);
-	vertexGroup.v110 = new Vector3f(maxX, yValUp, minZ);
-	vertexGroup.v111 = new Vector3f(maxX, yValUp, maxZ);
-	if (digSet.contains(block.add(0, 1, 1))) {
-          vertexGroup.v011 = new Vector3f(minX, yValUp, zValNorthDig);
-          vertexGroup.v111 = new Vector3f(maxX, yValUp, zValNorthDig);
-	}
-	if (digSet.contains(block.add(1, 1, 0))) {
-          vertexGroup.v110 = new Vector3f(xValEastDig, yValUp, minZ);
-          vertexGroup.v111 = new Vector3f(xValEastDig, yValUp, maxZ);
-        }
-	if (digSet.contains(block.add(0, 1, -1))) {
-          vertexGroup.v010 = new Vector3f(minX, yValUp, zValSouthDig);
-          vertexGroup.v110 = new Vector3f(maxX, yValUp, zValSouthDig);
-	}
-	if (digSet.contains(block.add(-1, 1, 0))) {
-          vertexGroup.v010 = new Vector3f(xValWestDig, yValUp, minZ);
-          vertexGroup.v011 = new Vector3f(xValWestDig, yValUp, maxZ);
-        }
-      }
-      if (down) {
-	vertexGroup.v000 = new Vector3f(minX, yValDown, minZ);
-	vertexGroup.v001 = new Vector3f(minX, yValDown, maxZ);
-	vertexGroup.v100 = new Vector3f(maxX, yValDown, minZ);
-	vertexGroup.v101 = new Vector3f(maxX, yValDown, maxZ);
-	if (digSet.contains(block.add(0, -1, 1))) {
-          vertexGroup.v001 = new Vector3f(minX, yValDown, zValNorthDig);
-          vertexGroup.v101 = new Vector3f(maxX, yValDown, zValNorthDig);
-	}
-	if (digSet.contains(block.add(1, -1, 0))) {
-          vertexGroup.v100 = new Vector3f(xValEastDig, yValDown, minZ);
-          vertexGroup.v101 = new Vector3f(xValEastDig, yValDown, maxZ);
-        }
-	if (digSet.contains(block.add(0, -1, -1))) {
-          vertexGroup.v000 = new Vector3f(minX, yValDown, zValSouthDig);
-          vertexGroup.v100 = new Vector3f(maxX, yValDown, zValSouthDig);
-	}
-	if (digSet.contains(block.add(-1, -1, 0))) {
-          vertexGroup.v000 = new Vector3f(xValWestDig, yValDown, minZ);
-          vertexGroup.v001 = new Vector3f(xValWestDig, yValDown, maxZ);
-        }
-      }
-      if (north) {
-	vertexGroup.v001 = new Vector3f(minX, minY, zValNorth);
-	vertexGroup.v011 = new Vector3f(minX, maxY, zValNorth);
-	vertexGroup.v101 = new Vector3f(maxX, minY, zValNorth);
-	vertexGroup.v111 = new Vector3f(maxX, maxY, zValNorth);
-	if (digSet.contains(block.add(0, 1, 1))) {
-          vertexGroup.v011 = new Vector3f(minX, yValUpDig, zValNorth);
-          vertexGroup.v111 = new Vector3f(maxX, yValUpDig, zValNorth);
-	}
-	if (digSet.contains(block.add(1, 0, 1))) {
-          vertexGroup.v101 = new Vector3f(xValEastDig, minY, zValNorth);
-          vertexGroup.v111 = new Vector3f(xValEastDig, maxY, zValNorth);
-        }
-	if (digSet.contains(block.add(0, -1, 1))) {
-          vertexGroup.v001 = new Vector3f(minX, yValDownDig, zValNorth);
-          vertexGroup.v101 = new Vector3f(maxX, yValDownDig, zValNorth);
-	}
-	if (digSet.contains(block.add(-1, 0, 1))) {
-          vertexGroup.v001 = new Vector3f(xValWestDig, minY, zValNorth);
-          vertexGroup.v011 = new Vector3f(xValWestDig, maxY, zValNorth);
-        }
-      }
-      if (east) {
-        vertexGroup.v100 = new Vector3f(xValEast, minY, minZ);
-        vertexGroup.v101 = new Vector3f(xValEast, minY, maxZ);
-        vertexGroup.v110 = new Vector3f(xValEast, maxY, minZ);
-        vertexGroup.v111 = new Vector3f(xValEast, maxY, maxZ);
-	if (digSet.contains(block.add(1, 1, 0))) {
-          vertexGroup.v110 = new Vector3f(xValEast, yValUpDig, minZ);
-          vertexGroup.v111 = new Vector3f(xValEast, yValUpDig, maxZ);
-	}
-	if (digSet.contains(block.add(1, 0, 1))) {
-          vertexGroup.v101 = new Vector3f(xValEast, minY, zValNorthDig);
-          vertexGroup.v111 = new Vector3f(xValEast, maxY, zValNorthDig);
-        }
-	if (digSet.contains(block.add(1, -1, 0))) {
-          vertexGroup.v100 = new Vector3f(xValEast, yValDownDig, minZ);
-          vertexGroup.v101 = new Vector3f(xValEast, yValDownDig, maxZ);
-	}
-	if (digSet.contains(block.add(1, 0, -1))) {
-          vertexGroup.v100 = new Vector3f(xValEast, minY, zValSouthDig);
-          vertexGroup.v110 = new Vector3f(xValEast, maxY, zValSouthDig);
-        }
-      }
-      if (south) {
-	vertexGroup.v000 = new Vector3f(minX, minY, zValSouth);
-	vertexGroup.v010 = new Vector3f(minX, maxY, zValSouth);
-	vertexGroup.v100 = new Vector3f(maxX, minY, zValSouth);
-	vertexGroup.v110 = new Vector3f(maxX, maxY, zValSouth);
-	if (digSet.contains(block.add(0, 1, -1))) {
-          vertexGroup.v010 = new Vector3f(minX, yValUpDig, zValSouth);
-          vertexGroup.v110 = new Vector3f(maxX, yValUpDig, zValSouth);
-	}
-	if (digSet.contains(block.add(1, 0, -1))) {
-          vertexGroup.v100 = new Vector3f(xValEastDig, minY, zValSouth);
-          vertexGroup.v110 = new Vector3f(xValEastDig, maxY, zValSouth);
-        }
-	if (digSet.contains(block.add(0, -1, -1))) {
-          vertexGroup.v000 = new Vector3f(minX, yValDownDig, zValSouth);
-          vertexGroup.v100 = new Vector3f(maxX, yValDownDig, zValSouth);
-	}
-	if (digSet.contains(block.add(-1, 0, -1))) {
-          vertexGroup.v000 = new Vector3f(xValWestDig, minY, zValSouth);
-          vertexGroup.v010 = new Vector3f(xValWestDig, maxY, zValSouth);
-        }
-      }
-      if (west) {
-        vertexGroup.v000 = new Vector3f(xValWest, minY, minZ);
-        vertexGroup.v001 = new Vector3f(xValWest, minY, maxZ);
-        vertexGroup.v010 = new Vector3f(xValWest, maxY, minZ);
-        vertexGroup.v011 = new Vector3f(xValWest, maxY, maxZ);
-	if (digSet.contains(block.add(-1, 1, 0))) {
-          vertexGroup.v010 = new Vector3f(xValWest, yValUpDig, minZ);
-          vertexGroup.v011 = new Vector3f(xValWest, yValUpDig, maxZ);
-	}
-	if (digSet.contains(block.add(-1, 0, 1))) {
-          vertexGroup.v001 = new Vector3f(xValWest, minY, zValNorthDig);
-          vertexGroup.v011 = new Vector3f(xValWest, maxY, zValNorthDig);
-        }
-	if (digSet.contains(block.add(-1, -1, 0))) {
-          vertexGroup.v000 = new Vector3f(xValWest, yValDownDig, minZ);
-          vertexGroup.v001 = new Vector3f(xValWest, yValDownDig, maxZ);
-	}
-	if (digSet.contains(block.add(-1, 0, -1))) {
-          vertexGroup.v000 = new Vector3f(xValWest, minY, zValSouthDig);
-          vertexGroup.v010 = new Vector3f(xValWest, maxY, zValSouthDig);
-        }
-      }
-
-      if (up && north) {
-	vertexGroup.v011 = new Vector3f(minX, yValUp, zValNorth);
-	vertexGroup.v111 = new Vector3f(maxX, yValUp, zValNorth);
-      }
-      if (up && east) {
-	vertexGroup.v110 = new Vector3f(xValEast, yValUp, minZ);
-	vertexGroup.v111 = new Vector3f(xValEast, yValUp, maxZ);
-      }
-      if (up && south) {
-	vertexGroup.v010 = new Vector3f(minX, yValUp, zValSouth);
-	vertexGroup.v110 = new Vector3f(maxX, yValUp, zValSouth);
-      }
-      if (up && west) {
-	vertexGroup.v010 = new Vector3f(xValWest, yValUp, minZ);
-	vertexGroup.v011 = new Vector3f(xValWest, yValUp, maxZ);
-      }
-
-      if (down && north) {
-	vertexGroup.v001 = new Vector3f(minX, yValDown, zValNorth);
-	vertexGroup.v101 = new Vector3f(maxX, yValDown, zValNorth);
-      }
-      if (down && east) {
-	vertexGroup.v100 = new Vector3f(xValEast, yValDown, minZ);
-	vertexGroup.v101 = new Vector3f(xValEast, yValDown, maxZ);
-      }
-      if (down && south) {
-	vertexGroup.v000 = new Vector3f(minX, yValDown, zValSouth);
-	vertexGroup.v100 = new Vector3f(maxX, yValDown, zValSouth);
-      }
-      if (down && west) {
-	vertexGroup.v000 = new Vector3f(xValWest, yValDown, minZ);
-	vertexGroup.v001 = new Vector3f(xValWest, yValDown, maxZ);
-      }
-
-      if (north && east) {
-	vertexGroup.v101 = new Vector3f(xValEast, minY, zValNorth);
-	vertexGroup.v111 = new Vector3f(xValEast, maxY, zValNorth);
-      }
-      if (south && east) {
-	vertexGroup.v100 = new Vector3f(xValEast, minY, zValSouth);
-	vertexGroup.v110 = new Vector3f(xValEast, maxY, zValSouth);
-      }
-      if (south && west) {
-	vertexGroup.v000 = new Vector3f(xValWest, minY, zValSouth);
-	vertexGroup.v010 = new Vector3f(xValWest, maxY, zValSouth);
-      }
-      if (north && west) {
-	vertexGroup.v001 = new Vector3f(xValWest, minY, zValNorth);
-	vertexGroup.v011 = new Vector3f(xValWest, maxY, zValNorth);
-      }
+      wallBlockWalls.put(block, group);
     }
+  }
+
+  private WallGroup updateWall(Vec3i block) {
+    boolean pWest  = !digSet.contains(block.add(-1,  0,  0));
+    boolean pEast  = !digSet.contains(block.add( 1,  0,  0));
+    boolean pDown  = !digSet.contains(block.add( 0, -1,  0));
+    boolean pUp    = !digSet.contains(block.add( 0,  1,  0));
+    boolean pSouth = !digSet.contains(block.add( 0,  0, -1));
+    boolean pNorth = !digSet.contains(block.add( 0,  0,  1));
+
+    float minX = block.getX();
+    float minY = block.getY();
+    float minZ = block.getZ();
+    float maxX = minX + 1.0f;
+    float maxY = minY + 1.0f;
+    float maxZ = minZ + 1.0f;
+    float adjustment = 0.01f;
+
+    float maxXAdjusted = maxX;
+    float maxYAdjusted = maxY;
+    float maxZAdjusted = maxZ;
+    float minXAdjusted = minX;
+    float minYAdjusted = minY;
+    float minZAdjusted = minZ;
+
+    float xVal = minX+adjustment;
+    float yVal = minY+adjustment;
+    float zVal = minZ+adjustment;
+    int xBlock = -1;
+    int yBlock = -1;
+    int zBlock = -1;
+
+    if (pEast) {
+      xVal = maxX-adjustment;
+      xBlock = 1;
+    }
+    if (pUp) {
+      yVal = maxY-adjustment;
+      yBlock = 1;
+    }
+    if (pNorth) {
+      zVal = maxZ-adjustment;
+      zBlock = 1;
+    }
+
+    if (pWest || pEast) {
+      boolean upNorth     = digSet.contains(block.add(xBlock, 1, 1));
+      boolean up          = digSet.contains(block.add(xBlock, 1, 0));
+      boolean upSouth     = digSet.contains(block.add(xBlock, 1, -1));
+
+      boolean north       = digSet.contains(block.add(xBlock, 0, 1));
+      boolean neutral     = digSet.contains(block.add(xBlock, 0, 0));
+      boolean south       = digSet.contains(block.add(xBlock, 0, -1));
+
+      boolean downNorth   = digSet.contains(block.add(xBlock, -1, 1));
+      boolean down        = digSet.contains(block.add(xBlock, -1, 0));
+      boolean downSouth   = digSet.contains(block.add(xBlock, -1, -1));
+
+      boolean upNorthCorner = upNorth && !up && !north;
+      boolean upSouthCorner = upSouth && !up && !south;
+      boolean downNorthCorner = downNorth && !down && !north;
+      boolean downSouthCorner = downSouth && !down && !south;
+
+      if ((!neutral && up) || upNorthCorner || upSouthCorner)
+        maxYAdjusted = maxY + adjustment;
+      if ((!neutral && down) || downNorthCorner || downSouthCorner)
+        minYAdjusted = minY - adjustment;
+      if ((!neutral && north) || upNorthCorner || downNorthCorner)
+        maxZAdjusted = maxZ + adjustment;
+      if ((!neutral && south) || upSouthCorner || downSouthCorner)
+        minZAdjusted = minZ - adjustment;
+
+      if ((!upSouth && south) || (!upNorth && north))
+        maxYAdjusted = maxY - adjustment;
+      if ((!downSouth && south) || (!downNorth && north))
+        minYAdjusted = minY + adjustment;
+      if ((!upNorth && up) || (!downNorth && down))
+        maxZAdjusted = maxZ - adjustment;
+      if ((!upSouth && up) || (!downSouth && down))
+        minZAdjusted = minZ + adjustment;
+    }
+
+    if (pDown || pUp) {
+      boolean northEast = digSet.contains(block.add(1, yBlock, 1));
+      boolean north     = digSet.contains(block.add(0, yBlock, 1));
+      boolean northWest = digSet.contains(block.add(-1, yBlock, 1));
+
+      boolean east      = digSet.contains(block.add(1, yBlock, 0));
+      boolean neutral   = digSet.contains(block.add(0, yBlock, 0));
+      boolean west      = digSet.contains(block.add(-1, yBlock, 0));
+
+      boolean southEast = digSet.contains(block.add(1, yBlock, -1));
+      boolean south     = digSet.contains(block.add(0, yBlock, -1));
+      boolean southWest = digSet.contains(block.add(-1, yBlock, -1));
+
+      boolean northEastCorner = northEast && !north && !east;
+      boolean northWestCorner = northWest && !north && !west;
+      boolean southEastCorner = southEast && !south && !east;
+      boolean southWestCorner = southWest && !south && !west;
+
+      if ((!neutral && east) || northEastCorner || southEastCorner)
+        maxXAdjusted = maxX + adjustment;
+      if ((!neutral && west) || northWestCorner || southWestCorner)
+        minXAdjusted = minX - adjustment;
+      if ((!neutral && north) || northEastCorner || northWestCorner)
+        maxZAdjusted = maxZ + adjustment;
+      if ((!neutral && south) || southEastCorner || southWestCorner)
+        minZAdjusted = minZ - adjustment;
+
+      if ((!northEast && north) || (!southEast && south))
+        maxXAdjusted = maxX - adjustment;
+      if ((!northWest && north) || (!southWest && south))
+        minXAdjusted = minX + adjustment;
+      if ((!northEast && east) || (!northWest && west))
+        maxZAdjusted = maxZ - adjustment;
+      if ((!southEast && east) || (!southWest && west))
+        minZAdjusted = minZ + adjustment;
+    }
+
+    if (pSouth || pNorth) {
+      boolean upEast    = digSet.contains(block.add(1, 1, zBlock));
+      boolean up        = digSet.contains(block.add(0, 1, zBlock));
+      boolean upWest    = digSet.contains(block.add(-1, 1, zBlock));
+
+      boolean east      = digSet.contains(block.add(1, 0, zBlock));
+      boolean neutral   = digSet.contains(block.add(0, 0, zBlock));
+      boolean west      = digSet.contains(block.add(-1, 0, zBlock));
+
+      boolean downEast  = digSet.contains(block.add(1, -1, zBlock));
+      boolean down      = digSet.contains(block.add(0, -1, zBlock));
+      boolean downWest  = digSet.contains(block.add(-1, -1, zBlock));
+
+      boolean upEastCorner = upEast && !up && !east;
+      boolean upWestCorner = upWest && !up && !west;
+      boolean downEastCorner = downEast && !down && !east;
+      boolean downWestCorner = downWest && !down && !west;
+
+      if ((!neutral && east) || upEastCorner || downEastCorner)
+        maxXAdjusted = maxX + adjustment;
+      if ((!neutral && west) || upWestCorner || downWestCorner)
+        minXAdjusted = minX - adjustment;
+      if ((!neutral && up) || upEastCorner || upWestCorner)
+        maxYAdjusted = maxY + adjustment;
+      if ((!neutral && down) || downEastCorner || downWestCorner)
+        minYAdjusted = minY - adjustment;
+
+      if ((!upEast && up) || (!downEast && down))
+        maxXAdjusted = maxX - adjustment;
+      if ((!upWest && up) || (!downWest && down))
+        minXAdjusted = minX + adjustment;
+      if ((!upEast && east) || (!upWest && west))
+        maxYAdjusted = maxY - adjustment;
+      if ((!downEast && east) || (!downWest && west))
+        minYAdjusted = minY + adjustment;
+    }
+
+    WallGroup wallGroup = new WallGroup(pWest, pEast, pDown, pUp, pSouth, pNorth);
+
+    if (pWest || pEast) {
+      wallGroup.putVertex(new Vector3f(xVal, minYAdjusted, minZAdjusted), pEast, false, false);
+      wallGroup.putVertex(new Vector3f(xVal, minYAdjusted, maxZAdjusted), pEast, false, true);
+      wallGroup.putVertex(new Vector3f(xVal, maxYAdjusted, minZAdjusted), pEast, true, false);
+      wallGroup.putVertex(new Vector3f(xVal, maxYAdjusted, maxZAdjusted), pEast, true, true);
+    }
+
+    if (pDown || pUp) {
+      wallGroup.putVertex(new Vector3f(minXAdjusted, yVal, minZAdjusted), false, pUp, false);
+      wallGroup.putVertex(new Vector3f(minXAdjusted, yVal, maxZAdjusted), false, pUp, true);
+      wallGroup.putVertex(new Vector3f(maxXAdjusted, yVal, minZAdjusted), true, pUp, false);
+      wallGroup.putVertex(new Vector3f(maxXAdjusted, yVal, maxZAdjusted), true, pUp, true);
+    }
+
+
+    if (pSouth || pNorth) {
+      wallGroup.putVertex(new Vector3f(minXAdjusted, minYAdjusted, zVal), false, false, pNorth);
+      wallGroup.putVertex(new Vector3f(minXAdjusted, maxYAdjusted, zVal), false, true, pNorth);
+      wallGroup.putVertex(new Vector3f(maxXAdjusted, minYAdjusted, zVal), true, false, pNorth);
+      wallGroup.putVertex(new Vector3f(maxXAdjusted, maxYAdjusted, zVal), true, true, pNorth);
+    }
+
+    // haven't thought about this thoroughly, might be buggy
+    if ((pWest || pEast) && (pDown || pUp)) {
+      wallGroup.putVertex(new Vector3f(xVal, yVal, minZAdjusted), pEast, pUp, false);
+      wallGroup.putVertex(new Vector3f(xVal, yVal, maxZAdjusted), pEast, pUp, true);
+    }
+    if ((pWest || pEast) && (pSouth || pNorth)) {
+      wallGroup.putVertex(new Vector3f(xVal, minYAdjusted, zVal), pEast, false, pNorth);
+      wallGroup.putVertex(new Vector3f(xVal, maxYAdjusted, zVal), pEast, true, pNorth);
+    }
+    if ((pDown || pUp) && (pSouth || pNorth)) {
+      wallGroup.putVertex(new Vector3f(minXAdjusted, yVal, zVal), false, pUp, pNorth);
+      wallGroup.putVertex(new Vector3f(maxXAdjusted, yVal, zVal), true, pUp, pNorth);
+    }
+
+    return wallGroup;
   }
 
   private void wireframeOverlays(WorldRenderContext ctx) {
@@ -654,13 +612,13 @@ public class VeinBuddyClient implements ClientModInitializer {
     
     for (Vec3i block : selections) {
       render = true;
-      VertexGroup group = selectionVertices.get(block);
-      buildVerticesWall(buffer, mat, group, WallType.UP, color);
-      buildVerticesWall(buffer, mat, group, WallType.DOWN, color);
-      buildVerticesWall(buffer, mat, group, WallType.NORTH, color);
-      buildVerticesWall(buffer, mat, group, WallType.EAST, color);
-      buildVerticesWall(buffer, mat, group, WallType.SOUTH, color);
-      buildVerticesWall(buffer, mat, group, WallType.WEST, color);
+      WallGroup group = selectionWalls.get(block);
+      buildVerticesWall(buffer, mat, group.getWestWall(), color);
+      buildVerticesWall(buffer, mat, group.getEastWall(), color);
+      buildVerticesWall(buffer, mat, group.getDownWall(), color);
+      buildVerticesWall(buffer, mat, group.getUpWall(), color);
+      buildVerticesWall(buffer, mat, group.getSouthWall(), color);
+      buildVerticesWall(buffer, mat, group.getNorthWall(), color);
     }
 
     if (render) {
@@ -707,81 +665,72 @@ public class VeinBuddyClient implements ClientModInitializer {
 
   private void buildVerticesWallBlock(BufferBuilder buffer, Matrix4f mat, Vec3i block, int color) {
     WallGroup group = wallBlockWalls.get(block);
-    VertexGroup g = wallBlockVertices.get(block);
-    boolean up, down, north, east, south, west; 
-    up = null != group.up;
-    down = null != group.down;
-    north = null != group.north;
-    east = null != group.east;
-    south = null != group.south;
-    west = null != group.west;
+    WallVertexGroup west, east, down, up, south, north;
+    west  = group.getWestWall();
+    east  = group.getEastWall();
+    down  = group.getDownWall();
+    up    = group.getUpWall();
+    south = group.getSouthWall();
+    north = group.getNorthWall();
 
-    if (up)
-      buildVerticesWall(buffer, mat, g, WallType.UP, color);
-    if (down)
-      buildVerticesWall(buffer, mat, g, WallType.DOWN, color);
-    if (north)
-      buildVerticesWall(buffer, mat, g, WallType.NORTH, color);
-    if (east)
-      buildVerticesWall(buffer, mat, g, WallType.EAST, color);
-    if (south)
-      buildVerticesWall(buffer, mat, g, WallType.SOUTH, color);
-    if (west)
-      buildVerticesWall(buffer, mat, g, WallType.WEST, color);
+    if (null != west)
+      buildVerticesWall(buffer, mat, west, color);
+    if (null != east)
+      buildVerticesWall(buffer, mat, east, color);
+    if (null != down)
+      buildVerticesWall(buffer, mat, down, color);
+    if (null != up)
+      buildVerticesWall(buffer, mat, up, color);
+    if (null != south)
+      buildVerticesWall(buffer, mat, south, color);
+    if (null != north)
+      buildVerticesWall(buffer, mat, north, color);
   }
 
-  private void buildVerticesWall(BufferBuilder buffer, Matrix4f mat, VertexGroup g, WallType type, int color) {
-    Vector3f v0 = g.getVertex0(type);
-    Vector3f v1 = g.getVertex1(type);
-    Vector3f v2 = g.getVertex2(type);
-    Vector3f v3 = g.getVertex3(type);
-    buffer.vertex(mat, v0.x, v0.y, v0.z).color(color);
-    buffer.vertex(mat, v1.x, v1.y, v1.z).color(color);
-    buffer.vertex(mat, v2.x, v2.y, v2.z).color(color);
+  private void buildVerticesWall(BufferBuilder buffer, Matrix4f mat, WallVertexGroup g, int color) {
+    buffer.vertex(mat, g.v00.x, g.v00.y, g.v00.z).color(color);
+    buffer.vertex(mat, g.v01.x, g.v01.y, g.v01.z).color(color);
+    buffer.vertex(mat, g.v11.x, g.v11.y, g.v11.z).color(color);
 
-    buffer.vertex(mat, v0.x, v0.y, v0.z).color(color);
-    buffer.vertex(mat, v2.x, v2.y, v2.z).color(color);
-    buffer.vertex(mat, v3.x, v3.y, v3.z).color(color);
+    buffer.vertex(mat, g.v00.x, g.v00.y, g.v00.z).color(color);
+    buffer.vertex(mat, g.v10.x, g.v10.y, g.v10.z).color(color);
+    buffer.vertex(mat, g.v11.x, g.v11.y, g.v11.z).color(color);
   }
 
   private void buildVerticesWallBlockOutline(BufferBuilder buffer, Matrix4f mat, Vec3i block, int color) {
     WallGroup group = wallBlockWalls.get(block);
-    VertexGroup g = wallBlockVertices.get(block);
-    boolean up, down, north, east, south, west; 
-    up = null != group.up;
-    down = null != group.down;
-    north = null != group.north;
-    east = null != group.east;
-    south = null != group.south;
-    west = null != group.west;
+    WallVertexGroup west, east, down, up, south, north;
 
-    if (up)
-      buildVerticesWallOutline(buffer, mat, g, WallType.UP, color);
-    if (down)
-      buildVerticesWallOutline(buffer, mat, g, WallType.DOWN, color);
-    if (north)
-      buildVerticesWallOutline(buffer, mat, g, WallType.NORTH, color);
-    if (east)
-      buildVerticesWallOutline(buffer, mat, g, WallType.EAST, color);
-    if (south)
-      buildVerticesWallOutline(buffer, mat, g, WallType.SOUTH, color);
-    if (west)
-      buildVerticesWallOutline(buffer, mat, g, WallType.WEST, color);
+    west  = group.getWestWall();
+    east  = group.getEastWall();
+    down  = group.getDownWall();
+    up    = group.getUpWall();
+    south = group.getSouthWall();
+    north = group.getNorthWall();
+
+    if (null != west)
+      buildVerticesWallOutline(buffer, mat, west, color);
+    if (null != east)
+      buildVerticesWallOutline(buffer, mat, east, color);
+    if (null != down)
+      buildVerticesWallOutline(buffer, mat, down, color);
+    if (null != up)
+      buildVerticesWallOutline(buffer, mat, up, color);
+    if (null != south)
+      buildVerticesWallOutline(buffer, mat, south, color);
+    if (null != north)
+      buildVerticesWallOutline(buffer, mat, north, color);
   }
 
-  private void buildVerticesWallOutline(BufferBuilder buffer, Matrix4f mat, VertexGroup g, WallType type, int color) {
-    Vector3f v0 = g.getVertex0(type);
-    Vector3f v1 = g.getVertex1(type);
-    Vector3f v2 = g.getVertex2(type);
-    Vector3f v3 = g.getVertex3(type);
-    buffer.vertex(mat, v0.x, v0.y, v0.z).color(color);
-    buffer.vertex(mat, v1.x, v1.y, v1.z).color(color);
-    buffer.vertex(mat, v1.x, v1.y, v1.z).color(color);
-    buffer.vertex(mat, v2.x, v2.y, v2.z).color(color);
-    buffer.vertex(mat, v2.x, v2.y, v2.z).color(color);
-    buffer.vertex(mat, v3.x, v3.y, v3.z).color(color);
-    buffer.vertex(mat, v3.x, v3.y, v3.z).color(color);
-    buffer.vertex(mat, v0.x, v0.y, v0.z).color(color);
+  private void buildVerticesWallOutline(BufferBuilder buffer, Matrix4f mat, WallVertexGroup g, int color) {
+    buffer.vertex(mat, g.v00.x, g.v00.y, g.v00.z).color(color);
+    buffer.vertex(mat, g.v01.x, g.v01.y, g.v01.z).color(color);
+    buffer.vertex(mat, g.v01.x, g.v01.y, g.v01.z).color(color);
+    buffer.vertex(mat, g.v11.x, g.v11.y, g.v11.z).color(color);
+    buffer.vertex(mat, g.v11.x, g.v11.y, g.v11.z).color(color);
+    buffer.vertex(mat, g.v10.x, g.v10.y, g.v10.z).color(color);
+    buffer.vertex(mat, g.v10.x, g.v10.y, g.v10.z).color(color);
+    buffer.vertex(mat, g.v00.x, g.v00.y, g.v00.z).color(color);
   }
 
   private void buildVerticesOutline(BufferBuilder buffer, Matrix4f mat, Vec3i block){
@@ -821,96 +770,35 @@ public class VeinBuddyClient implements ClientModInitializer {
     buffer.vertex(mat, maxX, maxY, minZ).color(0xFF000000);
   }
 
-  enum WallType {
-    UP,
-    DOWN,
-    NORTH,
-    EAST,
-    SOUTH,
-    WEST
-  }
+  private class WallVertexGroup {
+    public Vector3f v00, v01, v10, v11;
 
-  private class Wall {
-     protected Vec3i block;
-     protected WallType type;
-     
-     Wall(Vec3i block, WallType type){
-       this.block = block;
-       this.type = type;
-     }
+    public WallVertexGroup() {
+    }
+
+    public void updateGroup(Vector3f v00, Vector3f v01, Vector3f v10, Vector3f v11) {
+      this.v00 = v00;
+      this.v01 = v01;
+      this.v10 = v10;
+      this.v11 = v11;
+    }
   }
 
   private class WallGroup {
-    protected Vec3i block;
-    public Wall up, down, north, east, south, west;
+    protected Vector3f v000, v001, v010, v011, v100, v101, v110, v111;
+    protected WallVertexGroup west, east, down, up, south, north;
 
-    WallGroup(Vec3i block){
-      this.block = block;
-      up = null;
-      down = null;
-      north = null;
-      east = null;
-      south = null;
-      west = null;
+    public WallGroup() {
+      this(false, false, false, false, false, false);
     }
 
-    public void add(WallType type) {
-      switch (type) {
-	case WallType.UP:
-          if (null == up)
-            up = new Wall(block, WallType.UP);
-	  break;
-	case WallType.DOWN:
-          if (null == down)
-            down = new Wall(block, WallType.DOWN);
-	  break;
-	case WallType.NORTH:
-          if (null == north)
-            north = new Wall(block, WallType.NORTH);
-	  break;
-	case WallType.EAST:
-          if (null == east)
-            east = new Wall(block, WallType.EAST);
-	  break;
-	case WallType.SOUTH:
-          if (null == south)
-            south = new Wall(block, WallType.SOUTH);
-	  break;
-	case WallType.WEST:
-          if (null == west)
-            west = new Wall(block, WallType.WEST);
-	  break;
-      }
-    }
-
-    public void remove(WallType type) {
-      switch (type) {
-	case WallType.UP:
-          up = null;
-	  break;
-	case WallType.DOWN:
-          down = null;
-	  break;
-	case WallType.NORTH:
-	  north = null;
-	  break;
-	case WallType.EAST:
-	  east = null;
-	  break;
-	case WallType.SOUTH:
-	  south = null;
-	  break;
-	case WallType.WEST:
-	  west = null;
-	  break;
-      }
-    }
-  }
-
-  private class VertexGroup {
-    public Vector3f v000, v001, v010, v011, v100, v101, v110, v111;
-
-    VertexGroup(){
+    public WallGroup(boolean pWest, boolean pEast, boolean pDown, boolean pUp, boolean pSouth, boolean pNorth) {
+      west  = pWest  ? new WallVertexGroup() : null;
+      east  = pEast  ? new WallVertexGroup() : null;
+      down  = pDown  ? new WallVertexGroup() : null;
+      up    = pUp    ? new WallVertexGroup() : null;
+      south = pSouth ? new WallVertexGroup() : null;
+      north = pNorth ? new WallVertexGroup() : null;
       v000 = null;
       v001 = null;
       v010 = null;
@@ -921,67 +809,92 @@ public class VeinBuddyClient implements ClientModInitializer {
       v111 = null;
     }
 
-    public Vector3f getVertex0(WallType type) {
-      switch (type) {
-        case WallType.UP:
-        case WallType.NORTH:
-        case WallType.EAST:
-	  return v111;
-        case WallType.DOWN:
-        case WallType.SOUTH:
-        case WallType.WEST:
-	  return v000;
-      }
-      return v000;
-    }
-    public Vector3f getVertex1(WallType type) {
-      switch (type) {
-        case WallType.UP:
-        case WallType.NORTH:
-	  return v011;
-        case WallType.EAST:
-	  return v101;
-        case WallType.DOWN:
-        case WallType.WEST:
-	  return v001;
-        case WallType.SOUTH:
-	  return v010;
-      }
-      return v000;
+    public WallVertexGroup getWestWall() {
+      if (null != west)
+        west.updateGroup(v000, v001, v010, v011);
+      return west;
     }
 
-    public Vector3f getVertex2(WallType type) {
-      switch (type) {
-        case WallType.UP:
-	  return v010;
-	case WallType.NORTH:
-	  return v001;
-	case WallType.EAST:
-	  return v100;
-	case WallType.DOWN:
-	  return v101;
-	case WallType.WEST:
-	  return v011;
-	case WallType.SOUTH:
-	  return v110;
-      }
-      return v000;
+    public WallVertexGroup getEastWall() {
+      if (null != east)
+        east.updateGroup(v100, v101, v110, v111);
+      return east;
     }
 
-    public Vector3f getVertex3(WallType type) {
-      switch (type) {
-        case WallType.UP:
-	case WallType.EAST:
-	  return v110;
-	case WallType.NORTH:
-	  return v101;
-	case WallType.DOWN:
-	case WallType.SOUTH:
-	  return v100;
-	case WallType.WEST:
-	  return v010;
-      }
-      return v000;
+    public WallVertexGroup getDownWall() {
+      if (null != down)
+        down.updateGroup(v000, v001, v100, v101);
+      return down;
+    }
+
+    public WallVertexGroup getUpWall() {
+      if (null != up)
+        up.updateGroup(v010, v011, v110, v111);
+      return up;
+    }
+
+    public WallVertexGroup getSouthWall() {
+      if (null != south)
+        south.updateGroup(v000, v010, v100, v110);
+      return south;
+    }
+
+    public WallVertexGroup getNorthWall() {
+      if (null != north)
+        north.updateGroup(v001, v011, v101, v111);
+      return north;
+    }
+
+    public void putWestWall() {
+      if (null == west)
+        west = new WallVertexGroup();
+    }
+
+    public void putEastWall() {
+      if (null == east)
+        east = new WallVertexGroup();
+    }
+
+    public void putDownWall() {
+      if (null == down)
+        down = new WallVertexGroup();
+    }
+
+    public void putUpWall() {
+      if (null == up)
+        up = new WallVertexGroup();
+    }
+
+    public void putSouthWall() {
+      if (null == south)
+        south = new WallVertexGroup();
+    }
+
+    public void putNorthWall() {
+      if (null == north)
+        north = new WallVertexGroup();
+    }
+
+    public void putVertex(Vector3f vec, boolean east, boolean up, boolean north) {
+      boolean west = !east;
+      boolean down = !up;
+      boolean south = !north;
+      if (west && down && south)
+	v000 = vec;
+      if (west && down && north)
+	v001 = vec;
+      if (west && up && south)
+	v010 = vec;
+      if (west && up && north)
+	v011 = vec;
+      if (east && down && south)
+	v100 = vec;
+      if (east && down && north)
+	v101 = vec;
+      if (east && up && south)
+	v110 = vec;
+      if (east && up && north)
+	v111 = vec;
     }
   }
 }
