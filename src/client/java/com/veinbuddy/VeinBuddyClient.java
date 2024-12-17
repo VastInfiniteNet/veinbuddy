@@ -59,7 +59,7 @@ public class VeinBuddyClient implements ClientModInitializer {
   private final static MinecraftClient mc = MinecraftClient.getInstance();
   private final static double speed = 0.2f;
   private final static double radius = 0.5;
-  private final static int digRange = 10;
+  private final static int digRange = 7;
   private final static double placeRange = 6.0;
   private final static double visibilityRange = 12.0;
   private final static int maxTicks = (int) (placeRange / speed);
