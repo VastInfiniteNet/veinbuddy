@@ -12,6 +12,7 @@ import org.apache.commons.lang3.StringUtils;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.platform.TextureUtil;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.ArgumentBuilder;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
@@ -91,7 +92,8 @@ public class VeinBuddyClient implements ClientModInitializer {
   private boolean change = true;
   private int saveNumber = 0;
   private int changeNumber = 0;
-  private boolean showOutlines;
+  private boolean showOutlines = false;
+  private boolean render = true;
 
   private Set<Vec3i> selections = new ConcurrentSkipListSet<Vec3i>();
   private Map<Vec3i, Vec3i> selectionRanges = new ConcurrentHashMap<Vec3i, Vec3i>();
@@ -117,30 +119,30 @@ public class VeinBuddyClient implements ClientModInitializer {
   private int wallShaderProgram = 0;
   private int gridShaderProgram = 0; 
 
+
   @Override
   public void onInitializeClient() {
-    ClientLifecycleEvents.CLIENT_STARTED.register(client -> loadShaders());
+    ClientLifecycleEvents.CLIENT_STARTED.register(this::loadShaders);
     ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> onStart(client));
-    ClientTickEvents.END_CLIENT_TICK.register(client -> onTick(client));
-    ClientTickEvents.END_CLIENT_TICK.register(client -> saveSelections(client));
-    WorldRenderEvents.AFTER_TRANSLUCENT.register(context -> afterTranslucent(context));
-    WorldRenderEvents.LAST.register(context -> wireframeOverlays(context));
+    ClientTickEvents.END_CLIENT_TICK.register(this::onTick);
+    ClientTickEvents.END_CLIENT_TICK.register(this::saveSelections);
+    WorldRenderEvents.AFTER_TRANSLUCENT.register(this::afterTranslucent);
+    WorldRenderEvents.LAST.register(this::wireframeOverlays);
 
-    LiteralArgumentBuilder<FabricClientCommandSource> clearAll = ClientCommandManager.literal("clearAll");
-    LiteralArgumentBuilder<FabricClientCommandSource> clearFar = ClientCommandManager.literal("clearFar");
-    LiteralArgumentBuilder<FabricClientCommandSource> clearNear = ClientCommandManager.literal("clearNear");
-    LiteralArgumentBuilder<FabricClientCommandSource> hideOutlines = ClientCommandManager.literal("hideOutlines");
-    LiteralArgumentBuilder<FabricClientCommandSource> showOutlines = ClientCommandManager.literal("showOutlines");
-    LiteralArgumentBuilder<FabricClientCommandSource> reload = ClientCommandManager.literal("reload");
-
-    ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
-      dispatcher.register(clearAll.executes(context -> onClearAll(context)));
-      dispatcher.register(clearFar.executes(context -> onClearFar(context)));
-      dispatcher.register(clearNear.executes(context -> onClearNear(context)));
-      dispatcher.register(hideOutlines.executes(context -> onHideOutlines(context)));
-      dispatcher.register(showOutlines.executes(context -> onShowOutlines(context)));
-      dispatcher.register(reload.executes(context -> onReload(context)));
-    });
+    ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(
+      ClientCommandManager.literal("veinbuddy")
+      .then(ClientCommandManager.literal("clearAll").executes(this::onClearAll))
+      .then(ClientCommandManager.literal("clearFar").executes(this::onClearFar))
+      .then(ClientCommandManager.literal("clearNear").executes(this::onClearNear))
+      .then(ClientCommandManager.literal("digRange")
+        .then(ClientCommandManager.argument("x", IntegerArgumentType.integer(1, 10))
+        .then(ClientCommandManager.argument("y", IntegerArgumentType.integer(1, 10))
+        .then(ClientCommandManager.argument("z", IntegerArgumentType.integer(1, 10))
+          .executes(this::onDigRange)))))
+      .then(ClientCommandManager.literal("hideOutlines").executes(this::onHideOutlines))
+      .then(ClientCommandManager.literal("showOutlines").executes(this::onShowOutlines))
+      .then(ClientCommandManager.literal("toggleRender").executes(this::onToggleRender))
+    ));
   }
 
   private File getConfigFile(MinecraftClient client) {
@@ -152,10 +154,10 @@ public class VeinBuddyClient implements ClientModInitializer {
     if (null == serverInfo)
       return null;
     String address = serverInfo.address;
-    return new File(client.runDirectory, address + ".txt");
+    return new File(client.runDirectory, "data/veinbuddy/" + address + ".txt");
   }
 
-  private void loadShaders() {
+  private void loadShaders(MinecraftClient client) {
     int selectionVertexShader = loadShaderProgram("selections", ".vsh", GL30.GL_VERTEX_SHADER);
     int wallVertexShader = loadShaderProgram("walls", ".vsh", GL30.GL_VERTEX_SHADER);
     int gridVertexShader = loadShaderProgram("grids", ".vsh", GL30.GL_VERTEX_SHADER);
@@ -222,6 +224,7 @@ public class VeinBuddyClient implements ClientModInitializer {
       File saveFile = getSaveFile(client);
       if (null == saveFile)
         return;
+      saveFile.getParentFile().mkdirs();
       FileWriter fileWriter = new FileWriter(saveFile, false);
       fileWriter.write("Version 2\n");
       for (Vec3i selection : selections) {
@@ -241,9 +244,10 @@ public class VeinBuddyClient implements ClientModInitializer {
     if (null != configFile) {
       try {
         Scanner sc = new Scanner(configFile);
-          int digXRange = sc.nextInt();
-          int digYRange = sc.nextInt();
-          int digZRange = sc.nextInt();
+          int x = sc.nextInt();
+          int y = sc.nextInt();
+          int z = sc.nextInt();
+	  digRange = new Vec3i(x, y, z);
       } catch (IOException e) {
         System.out.println("Mad!");
       }
@@ -372,50 +376,38 @@ public class VeinBuddyClient implements ClientModInitializer {
     return 0;
   }
 
-  private int onReload(CommandContext<FabricClientCommandSource> ctx) {
-    selections = new ConcurrentSkipListSet<Vec3i>();
-    selectionWalls = new ConcurrentHashMap<Vec3i, WallGroup>();
+  private int onToggleRender(CommandContext<FabricClientCommandSource> ctx) {
+     render = !render;
+     return 0;
+  }
 
-    boundary = new ConcurrentSkipListSet<Vec3i>();
-    wallBlocks = new ConcurrentSkipListSet<Vec3i>();
-    wallBlockWalls = new ConcurrentHashMap<Vec3i, WallGroup>();
-    File saveFile = getSaveFile(mc);
-
-    if (null == saveFile)
-      return -1;
+  private int onDigRange(CommandContext<FabricClientCommandSource> ctx) {
+    int x = IntegerArgumentType.getInteger(ctx, "x");
+    int y = IntegerArgumentType.getInteger(ctx, "y");
+    int z = IntegerArgumentType.getInteger(ctx, "z");
+    digRange = new Vec3i(x, y, z);
     try {
-      Scanner sc = new Scanner(saveFile);
-      sc.nextLine();
-      while (sc.hasNext()){
-        int x = sc.nextInt();
-        int y = sc.nextInt();
-        int z = sc.nextInt();
-        int xRange = sc.nextInt();
-        int yRange = sc.nextInt();
-        int zRange = sc.nextInt();
-        addSelection(new Vec3i(x, y, z), new Vec3i(xRange, yRange, zRange), true);
-        sc.nextLine();
-      }
+      File configFile = getConfigFile(mc);
+      FileWriter fileWriter = new FileWriter(configFile, false);
+      fileWriter.write(x + " " + y + " " + z + "\n");
     } catch (IOException e) {
-      System.out.println("Bad!");
+      System.out.println("Egad!");
     }
-    updateWalls();
-    refreshBuffer();
 
     return 0;
   }
 
   private void onTick(MinecraftClient client) {
     if (null == client.player) return;
-    if (null == mc.mouse) return;
-    if (null == mc.world) return;
+    if (null == client.mouse) return;
+    if (null == client.world) return;
     if (!(client.player.getInventory().getMainHandStack().getItem() instanceof PickaxeItem)) {
       pos = null;
       posBlock = null;
       selectionTicks = 0;
       return;
     }
-    boolean rightClick = mc.mouse.wasRightButtonClicked();
+    boolean rightClick = client.mouse.wasRightButtonClicked();
     Vec3d playerPos = client.player.getPos().add(0.0f, 1.6f, 0.0f);
     Vec3d playerDir = client.player.getRotationVector();
     if (!rightClick && 0 != selectionTicks && 10 > selectionTicks) {
@@ -904,8 +896,6 @@ public class VeinBuddyClient implements ClientModInitializer {
     if (null == mc.player) return;
     if (null == posBlock && (!showOutlines || selections.isEmpty())) return;
     
-    boolean render = false;
-
     Vec3d camPos = ctx.camera().getPos();
     MatrixStack stack = ctx.matrixStack();
     stack.push();
@@ -915,23 +905,19 @@ public class VeinBuddyClient implements ClientModInitializer {
     BufferBuilder buffer = tessellator.begin(VertexFormat.DrawMode.DEBUG_LINES, VertexFormats.POSITION_COLOR);
 
     if (null != posBlock){
-      render = true;
       buildVerticesOutline(buffer, mat, posBlock);
     }
 
     if (showOutlines && !selections.isEmpty()) {
-      render = true;
       for(Vec3i selection : selections) {
 	 buildVerticesOutline(buffer, mat, selection);
       }
     }
 
-    if (render) {
-      RenderSystem.setShader(GameRenderer::getPositionColorProgram);
-      RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
+    RenderSystem.setShader(GameRenderer::getPositionColorProgram);
+    RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
 
-      BufferRenderer.drawWithGlobalProgram(buffer.end());
-    }
+    BufferRenderer.drawWithGlobalProgram(buffer.end());
 
     stack.pop();
   }
@@ -965,7 +951,7 @@ public class VeinBuddyClient implements ClientModInitializer {
   }
 
   private void afterTranslucent(WorldRenderContext ctx) {
-    if (selections.isEmpty()) return;
+    if (selections.isEmpty() || !render) return;
 
     Vec3d camPos = ctx.camera().getPos();
     Vector3f camVec = new Vector3f(-(float)camPos.getX(), -(float)camPos.getY(), -(float)camPos.getZ());
@@ -992,7 +978,7 @@ public class VeinBuddyClient implements ClientModInitializer {
 
     GL30.glUseProgram(selectionShaderProgram);
     GL30.glUniformMatrix4fv(GL30.glGetUniformLocation(selectionShaderProgram, "u_projection"), false, mat);
-    GL30.glDrawArrays(GL30.GL_TRIANGLES, 0, selectionBuffer.capacity() / 3 / 4); //3 floats per vertex, 4 bytes per float
+    GL30.glDrawArrays(GL30.GL_TRIANGLES, 0, selectionBuffer.capacity() / 3 / 4); //three floats per vertex, four bytes per float
     GL30.glUseProgram(0);
 
     GL30.glBindBuffer(GL30.GL_ARRAY_BUFFER, wallVBO);
@@ -1002,7 +988,7 @@ public class VeinBuddyClient implements ClientModInitializer {
 
     GL30.glUseProgram(wallShaderProgram);
     GL30.glUniformMatrix4fv(GL30.glGetUniformLocation(wallShaderProgram, "u_projection"), false, mat);
-    GL30.glDrawArrays(GL30.GL_TRIANGLES, 0, wallBuffer.capacity() / 3 / 4); //3 floats per vertex, 4 bytes per float
+    GL30.glDrawArrays(GL30.GL_TRIANGLES, 0, wallBuffer.capacity() / 3 / 4); //three floats per vertex, four bytes per float
     GL30.glUseProgram(0);
 
     GL30.glBindBuffer(GL30.GL_ARRAY_BUFFER, gridVBO);
@@ -1012,7 +998,7 @@ public class VeinBuddyClient implements ClientModInitializer {
 
     GL30.glUseProgram(gridShaderProgram);
     GL30.glUniformMatrix4fv(GL30.glGetUniformLocation(gridShaderProgram, "u_projection"), false, mat);
-    GL30.glDrawArrays(GL30.GL_LINES, 0, gridBuffer.capacity() / 3 / 4); //3 vertices per vertex, 4 bytes per float
+    GL30.glDrawArrays(GL30.GL_LINES, 0, gridBuffer.capacity() / 3 / 4); //three vertices per vertex, four bytes per float
     GL30.glUseProgram(0);
 
     updateBuffers = false;
