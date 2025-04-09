@@ -22,6 +22,8 @@ jobs:
           distribution: "corretto"
           cache: "gradle"
 
+      - name: Change wrapper permissions
+        run: chmod +x ./gradlew
       - name: "Compiling VeinBuddy"
         run: "./gradlew build"
 
