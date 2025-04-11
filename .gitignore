@@ -7,7 +7,6 @@
 .gradle
 build/*
 !src/**/build/
-!build/libs/
 classes/
 releases/
 
