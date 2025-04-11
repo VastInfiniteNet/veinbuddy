@@ -7,7 +7,9 @@
 .gradle
 **/build/
 !src/**/build/
+!build/libs/*.jar
 classes/
+releases/
 
 
 # Ignore Gradle GUI config
@@ -62,3 +64,4 @@ run/
 hs_err_*.log
 replay_*.log
 *.jfr
+
