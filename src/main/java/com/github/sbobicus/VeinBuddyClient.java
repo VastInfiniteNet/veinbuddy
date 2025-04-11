@@ -198,7 +198,8 @@ public class VeinBuddyClient implements ClientModInitializer {
          int i = byteBuffer.position();
          byteBuffer.rewind();
          return MemoryUtil.memASCII(byteBuffer, i);
-      } catch (IOException ignored) {
+      } catch (IOException e) {
+         LOGGER.error("Failed reading resource stream", e);
       } finally {
          if (byteBuffer != null) {
             MemoryUtil.memFree(byteBuffer);
@@ -212,7 +213,7 @@ public class VeinBuddyClient implements ClientModInitializer {
          return;
       try {
          File saveFile = getSaveFile(client);
-         if (null == saveFile)
+         if (saveFile == null)
             return;
          saveFile.getParentFile().mkdirs();
          FileWriter fileWriter = new FileWriter(saveFile, false);
@@ -248,13 +249,13 @@ public class VeinBuddyClient implements ClientModInitializer {
       } else {
          LOGGER.info("No config file found.");
       }
-      if (null == saveFile) {
+      if (saveFile == null) {
          LOGGER.info("No save file found.");
          return;
       }
       try (Scanner sc = new Scanner(saveFile)) {
          String found = sc.next("Version \\d*");
-         if (null == found) { // Version 1
+         if (found == null) { // Version 1
             LOGGER.debug("Loading Version 1 selections save file.");
             while (sc.hasNext()) {
                int x = sc.nextInt();
@@ -265,7 +266,7 @@ public class VeinBuddyClient implements ClientModInitializer {
                   true);
                sc.nextLine();
             }
-         } else if ("Version 2" == found) { // Version 2
+         } else if (found == "Version 2") { // Version 2
             LOGGER.debug("Loading Version 2 selections save file.");
             sc.nextLine();
             while (sc.hasNext()) {
@@ -398,9 +399,9 @@ public class VeinBuddyClient implements ClientModInitializer {
    }
 
    private void onTick(MinecraftClient client) {
-      if (null == client.player
-            || null == client.mouse
-            || null == client.world)
+      if (client.player == null 
+            || client.mouse == null 
+            || client.world == null)
          return;
       if (!(client.player.getInventory().getMainHandStack().getItem() instanceof PickaxeItem)) {
          pos = null;
@@ -914,8 +915,8 @@ public class VeinBuddyClient implements ClientModInitializer {
    }
 
    private void wireframeOverlays(WorldRenderContext ctx) {
-      if (null == MC.player
-            || null == posBlock && (!showOutlines || selections.isEmpty()))
+      if (posBlock == null && (!showOutlines || selections.isEmpty()) 
+            || MC.player == null)
          return;
 
       Vec3d camPos = ctx.camera().getPos();
@@ -926,7 +927,7 @@ public class VeinBuddyClient implements ClientModInitializer {
       Tessellator tessellator = Tessellator.getInstance();
       BufferBuilder buffer = tessellator.begin(VertexFormat.DrawMode.DEBUG_LINES, VertexFormats.POSITION_COLOR);
 
-      if (null != posBlock) {
+      if (posBlock != null) {
          buildVerticesOutline(buffer, mat, posBlock);
       }
 
@@ -1059,17 +1060,17 @@ public class VeinBuddyClient implements ClientModInitializer {
       south = group.getSouthWall();
       north = group.getNorthWall();
 
-      if (null != west)
+      if (west != null)
          buildVerticesWall(vertices, west);
-      if (null != east)
+      if (east != null)
          buildVerticesWall(vertices, east);
-      if (null != down)
+      if (down != null)
          buildVerticesWall(vertices, down);
-      if (null != up)
+      if (up != null)
          buildVerticesWall(vertices, up);
-      if (null != south)
+      if (south != null)
          buildVerticesWall(vertices, south);
-      if (null != north)
+      if (north != null)
          buildVerticesWall(vertices, north);
    }
 
@@ -1110,17 +1111,17 @@ public class VeinBuddyClient implements ClientModInitializer {
       north = group.getNorthWall();
 
       int walls = 0;
-      if (null != west)
+      if (west != null)
          buildVerticesWallOutline(vertices, west);
-      if (null != east)
+      if (east != null)
          buildVerticesWallOutline(vertices, east);
-      if (null != down)
+      if (down != null)
          buildVerticesWallOutline(vertices, down);
-      if (null != up)
+      if (up != null)
          buildVerticesWallOutline(vertices, up);
-      if (null != south)
+      if (south != null)
          buildVerticesWallOutline(vertices, south);
-      if (null != north)
+      if (north != null)
          buildVerticesWallOutline(vertices, north);
    }
 
@@ -1247,37 +1248,37 @@ public class VeinBuddyClient implements ClientModInitializer {
       }
 
       public WallVertexGroup getWestWall() {
-         if (null != west)
+         if (west != null)
             west.updateGroup(v000, v001, v010, v011);
          return west;
       }
 
       public WallVertexGroup getEastWall() {
-         if (null != east)
+         if (east != null)
             east.updateGroup(v100, v101, v110, v111);
          return east;
       }
 
       public WallVertexGroup getDownWall() {
-         if (null != down)
+         if (down != null)
             down.updateGroup(v000, v001, v100, v101);
          return down;
       }
 
       public WallVertexGroup getUpWall() {
-         if (null != up)
+         if (up != null)
             up.updateGroup(v010, v011, v110, v111);
          return up;
       }
 
       public WallVertexGroup getSouthWall() {
-         if (null != south)
+         if (south != null)
             south.updateGroup(v000, v010, v100, v110);
          return south;
       }
 
       public WallVertexGroup getNorthWall() {
-         if (null != north)
+         if (north != null)
             north.updateGroup(v001, v011, v101, v111);
          return north;
       }
