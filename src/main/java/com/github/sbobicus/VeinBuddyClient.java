@@ -52,17 +52,24 @@ import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class VeinBuddyClient implements ClientModInitializer {
 
+   public static final Logger LOGGER = LoggerFactory.getLogger("veinbuddy");
+
    private final static MinecraftClient MC = MinecraftClient.getInstance();
-   private final static int DEFAULT_DIG_RANGE = 7;
    private final static double SPEED = 0.2f;
    private final static double RADIUS = 0.5;
    private final static double PLACE_RANGE = 6.0;
    private final static int MAX_TICKS = (int) (PLACE_RANGE / SPEED);
    private final static int DELAY = 5;
+   private final static int MAX_DIG_RANGE_RADIUS = 16;
 
-   private Vec3i digRange = new Vec3i(DEFAULT_DIG_RANGE, DEFAULT_DIG_RANGE, DEFAULT_DIG_RANGE);
+   private int defaultDigRangeRadius = 7;
+
+   private Vec3i digRange = new Vec3i(defaultDigRangeRadius, defaultDigRangeRadius, defaultDigRangeRadius);
 
    private int selectionTicks = 0;
    private Vec3d pos = null;
@@ -111,14 +118,18 @@ public class VeinBuddyClient implements ClientModInitializer {
                   .then(ClientCommandManager.literal("clearAll").executes(this::onClearAll))
                   .then(ClientCommandManager.literal("clearFar").executes(this::onClearFar))
                   .then(ClientCommandManager.literal("clearNear").executes(this::onClearNear))
-                  .then(ClientCommandManager.literal("digRange")
-                        .then(ClientCommandManager.argument("x", IntegerArgumentType.integer(1, 10))
-                              .then(ClientCommandManager.argument("y", IntegerArgumentType.integer(1, 10))
-                                    .then(ClientCommandManager.argument("z", IntegerArgumentType.integer(1, 10))
-                                          .executes(this::onDigRange)))))
+                  .then(ClientCommandManager.literal("setDigRange")
+                        .then(ClientCommandManager.argument("x", IntegerArgumentType.integer(1, MAX_DIG_RANGE_RADIUS))
+                              .then(ClientCommandManager.argument("y", IntegerArgumentType.integer(1, MAX_DIG_RANGE_RADIUS))
+                                    .then(ClientCommandManager.argument("z", IntegerArgumentType.integer(1, MAX_DIG_RANGE_RADIUS))
+                                          .executes(this::onSetDigRange)))))
                   .then(ClientCommandManager.literal("hideOutlines").executes(this::onHideOutlines))
                   .then(ClientCommandManager.literal("showOutlines").executes(this::onShowOutlines))
-                  .then(ClientCommandManager.literal("toggleRender").executes(this::onToggleRender))));
+                  .then(ClientCommandManager.literal("toggleRender").executes(this::onToggleRender))
+                  .then(ClientCommandManager.literal("setDefaultDigRangeRadius")
+                     .then(ClientCommandManager.argument("radius", IntegerArgumentType.integer(1, MAX_DIG_RANGE_RADIUS))
+                        .executes(this::onSetDefaultDigRangeRadius)))
+                  ));
    }
 
    private File getConfigFile(MinecraftClient client) {
@@ -208,44 +219,54 @@ public class VeinBuddyClient implements ClientModInitializer {
          fileWriter.write("Version 2\n");
          for (Vec3i selection : selections) {
             Vec3i ranges = selectionRanges.get(selection);
-            fileWriter
-                  .write(selection.getX() + " " + selection.getY() + " " + selection.getZ() + " " + ranges.getX() + " "
-                        + ranges.getY() + " " + ranges.getZ() + "\n");
+            fileWriter.write(String.format(
+               "%d %d %d %d %d %d\n", 
+               selection.getX(), selection.getY(), selection.getZ(),
+               ranges.getX(), ranges.getY(), ranges.getZ()
+            ));
          }
          fileWriter.close();
          saveNumber = changeNumber;
       } catch (IOException e) {
-         System.out.println("Sad!");
+         LOGGER.error("Failed to save current selections", e);
       }
    }
 
    private void onStart(MinecraftClient client) {
       File configFile = getConfigFile(client);
       File saveFile = getSaveFile(client);
-      if (null != configFile) {
+      if (configFile != null) {
          try (Scanner sc = new Scanner(configFile)) {
             int x = sc.nextInt();
             int y = sc.nextInt();
             int z = sc.nextInt();
             digRange = new Vec3i(x, y, z);
          } catch (IOException e) {
-            System.out.println("Mad!");
+            LOGGER.error("Failed to load config file.", e);
          }
+         LOGGER.info("Loaded config file.");
+      } else {
+         LOGGER.info("No config file found.");
       }
-      if (null == saveFile)
+      if (null == saveFile) {
+         LOGGER.info("No save file found.");
          return;
+      }
       try (Scanner sc = new Scanner(saveFile)) {
          String found = sc.next("Version \\d*");
          if (null == found) { // Version 1
+            LOGGER.debug("Loading Version 1 selections save file.");
             while (sc.hasNext()) {
                int x = sc.nextInt();
                int y = sc.nextInt();
                int z = sc.nextInt();
-               addSelection(new Vec3i(x, y, z), new Vec3i(DEFAULT_DIG_RANGE, DEFAULT_DIG_RANGE, DEFAULT_DIG_RANGE),
-                     true);
+               addSelection(new Vec3i(x, y, z), 
+                  new Vec3i(defaultDigRangeRadius, defaultDigRangeRadius, defaultDigRangeRadius),
+                  true);
                sc.nextLine();
             }
          } else if ("Version 2" == found) { // Version 2
+            LOGGER.debug("Loading Version 2 selections save file.");
             sc.nextLine();
             while (sc.hasNext()) {
                int x = sc.nextInt();
@@ -258,8 +279,9 @@ public class VeinBuddyClient implements ClientModInitializer {
                sc.nextLine();
             }
          }
+         LOGGER.info("Loaded save file.");
       } catch (IOException e) {
-         System.out.println("Bad!");
+         LOGGER.error("Failed to load selections save file.", e);
       }
       updateWalls();
       refreshBuffer();
@@ -361,15 +383,15 @@ public class VeinBuddyClient implements ClientModInitializer {
       return 0;
    }
 
-   private int onDigRange(CommandContext<FabricClientCommandSource> ctx) {
+   private int onSetDigRange(CommandContext<FabricClientCommandSource> ctx) {
       int x = IntegerArgumentType.getInteger(ctx, "x");
       int y = IntegerArgumentType.getInteger(ctx, "y");
       int z = IntegerArgumentType.getInteger(ctx, "z");
       digRange = new Vec3i(x, y, z);
       try (FileWriter fileWriter = new FileWriter(getConfigFile(MC), false)) {
-         fileWriter.write(x + " " + y + " " + z + "\n");
+         fileWriter.write(String.format("%d %d %d\n", x, y, z));
       } catch (IOException e) {
-         System.out.println("Egad!");
+         LOGGER.error("Failed to save dig range.", e);
       }
 
       return 0;
@@ -423,6 +445,20 @@ public class VeinBuddyClient implements ClientModInitializer {
       if (t0 < 0 && t1 < 0)
          return false;
       return true;
+   }
+
+   private int onSetDefaultDigRangeRadius(CommandContext<FabricClientCommandSource> ctx) {
+      int x = IntegerArgumentType.getInteger(ctx, "x");
+      int y = IntegerArgumentType.getInteger(ctx, "y");
+      int z = IntegerArgumentType.getInteger(ctx, "z");
+      digRange = new Vec3i(x, y, z);
+      try (FileWriter fileWriter = new FileWriter(getConfigFile(MC), false)) {
+         fileWriter.write(x + " " + y + " " + z + "\n");
+      } catch (IOException e) {
+         LOGGER.error("Failed to say new default dig range radius", e);
+      }
+
+      return 0;
    }
 
    private boolean rayIntersectsXFace(Vec3d orig, Vec3d rot, Vec3i block) {
@@ -686,7 +722,7 @@ public class VeinBuddyClient implements ClientModInitializer {
       boolean pNorth = boundary.contains(block.add(0, 0, 1));
 
       if ((pWest && pEast) || (pDown && pUp) || (pSouth && pNorth))
-         System.out.println("Error!");
+         LOGGER.warn("Error!");
 
       float minX = block.getX();
       float minY = block.getY();
