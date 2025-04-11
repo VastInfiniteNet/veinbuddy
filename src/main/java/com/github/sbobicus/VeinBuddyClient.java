@@ -449,15 +449,8 @@ public class VeinBuddyClient implements ClientModInitializer {
    }
 
    private int onSetDefaultDigRangeRadius(CommandContext<FabricClientCommandSource> ctx) {
-      int x = IntegerArgumentType.getInteger(ctx, "x");
-      int y = IntegerArgumentType.getInteger(ctx, "y");
-      int z = IntegerArgumentType.getInteger(ctx, "z");
-      digRange = new Vec3i(x, y, z);
-      try (FileWriter fileWriter = new FileWriter(getConfigFile(MC), false)) {
-         fileWriter.write(x + " " + y + " " + z + "\n");
-      } catch (IOException e) {
-         LOGGER.error("Failed to say new default dig range radius", e);
-      }
+      int radius = IntegerArgumentType.getInteger(ctx, "radius");
+      defaultDigRangeRadius = radius;
 
       return 0;
    }
