@@ -5,9 +5,9 @@
 
 ### Gradle ###
 .gradle
-**/build/
+build/*
 !src/**/build/
-!build/libs/*.jar
+!build/libs/
 classes/
 releases/
 
