@@ -66,10 +66,9 @@ public class VeinBuddyClient implements ClientModInitializer {
    private final static int MAX_TICKS = (int) (PLACE_RANGE / SPEED);
    private final static int DELAY = 5;
    private final static int MAX_DIG_RANGE_RADIUS = 16;
+   private final static int DEFAULT_DIG_RANGE_RADIUS = 7;
 
-   private int defaultDigRangeRadius = 7;
-
-   private Vec3i digRange = new Vec3i(defaultDigRangeRadius, defaultDigRangeRadius, defaultDigRangeRadius);
+   private Vec3i digRange = new Vec3i(DEFAULT_DIG_RANGE_RADIUS, DEFAULT_DIG_RANGE_RADIUS, DEFAULT_DIG_RANGE_RADIUS);
 
    private int selectionTicks = 0;
    private Vec3d pos = null;
@@ -126,10 +125,7 @@ public class VeinBuddyClient implements ClientModInitializer {
                   .then(ClientCommandManager.literal("hideOutlines").executes(this::onHideOutlines))
                   .then(ClientCommandManager.literal("showOutlines").executes(this::onShowOutlines))
                   .then(ClientCommandManager.literal("toggleRender").executes(this::onToggleRender))
-                  .then(ClientCommandManager.literal("setDefaultDigRangeRadius")
-                     .then(ClientCommandManager.argument("radius", IntegerArgumentType.integer(1, MAX_DIG_RANGE_RADIUS))
-                        .executes(this::onSetDefaultDigRangeRadius)))
-                  ));
+      ));
    }
 
    private File getConfigFile(MinecraftClient client) {
@@ -262,7 +258,7 @@ public class VeinBuddyClient implements ClientModInitializer {
                int y = sc.nextInt();
                int z = sc.nextInt();
                addSelection(new Vec3i(x, y, z), 
-                  new Vec3i(defaultDigRangeRadius, defaultDigRangeRadius, defaultDigRangeRadius),
+                  new Vec3i(DEFAULT_DIG_RANGE_RADIUS, DEFAULT_DIG_RANGE_RADIUS, DEFAULT_DIG_RANGE_RADIUS),
                   true);
                sc.nextLine();
             }
@@ -446,13 +442,6 @@ public class VeinBuddyClient implements ClientModInitializer {
       if (t0 < 0 && t1 < 0)
          return false;
       return true;
-   }
-
-   private int onSetDefaultDigRangeRadius(CommandContext<FabricClientCommandSource> ctx) {
-      int radius = IntegerArgumentType.getInteger(ctx, "radius");
-      defaultDigRangeRadius = radius;
-
-      return 0;
    }
 
    private boolean rayIntersectsXFace(Vec3d orig, Vec3d rot, Vec3i block) {
