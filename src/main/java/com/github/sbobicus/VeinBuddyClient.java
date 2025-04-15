@@ -12,6 +12,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileWriter;
 import java.io.InputStream;
 import java.io.IOException;
@@ -223,6 +224,7 @@ public class VeinBuddyClient implements ClientModInitializer {
          }
          fileWriter.close();
          saveNumber = changeNumber;
+         LOGGER.info("Saved selections to savefile.");
       } catch (IOException e) {
          LOGGER.error("Failed to save current selections", e);
       }
@@ -237,10 +239,10 @@ public class VeinBuddyClient implements ClientModInitializer {
             int y = sc.nextInt();
             int z = sc.nextInt();
             digRange = new Vec3i(x, y, z);
-         } catch (IOException e) {
-            LOGGER.error("Failed to load config file.", e);
+            LOGGER.info("Loaded config file.");
+         } catch (FileNotFoundException e) {
+            LOGGER.info("No config file found.");
          }
-         LOGGER.info("Loaded config file.");
       } else {
          LOGGER.info("No config file found.");
       }
@@ -406,6 +408,7 @@ public class VeinBuddyClient implements ClientModInitializer {
       digRange = new Vec3i(x, y, z);
       try (FileWriter fileWriter = new FileWriter(getConfigFile(MC), false)) {
          fileWriter.write(String.format("%d %d %d\n", x, y, z));
+         LOGGER.info("Save new dig range to config file.");
       } catch (IOException e) {
          LOGGER.error("Failed to save dig range.", e);
       }
