@@ -9,9 +9,9 @@ out to find more ore.
 
 ## Commands
 
-- `/veinbuddy clearAll`
-- `/veinbuddy clearFar`
-- `/veinbuddy clearNear`
-- `/veinbuddy hideOutlines`
-- `/veinbuddy showOutlines`
-- `/veinbuddy reload`
+- `/veinbuddy clearAll` clears all selected ore and associated dig ranges.
+- `/veinbuddy clearFar` idk
+- `/veinbuddy clearNear` idk
+- `/veinbuddy hideOutlines` I don't know.
+- `/veinbuddy showOutlines` I don't know.
+- `/veinbuddy reload` refresh drawn selected ores and dig ranges.

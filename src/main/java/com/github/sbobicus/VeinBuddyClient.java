@@ -122,8 +122,7 @@ public class VeinBuddyClient implements ClientModInitializer {
                               .then(ClientCommandManager.argument("y", IntegerArgumentType.integer(1, MAX_DIG_RANGE_RADIUS))
                                     .then(ClientCommandManager.argument("z", IntegerArgumentType.integer(1, MAX_DIG_RANGE_RADIUS))
                                           .executes(this::onSetDigRange)))))
-                  .then(ClientCommandManager.literal("hideOutlines").executes(this::onHideOutlines))
-                  .then(ClientCommandManager.literal("showOutlines").executes(this::onShowOutlines))
+                  .then(ClientCommandManager.literal("toggleOutlines").executes(this::onToggleOutlines))
                   .then(ClientCommandManager.literal("toggleRender").executes(this::onToggleRender))
       ));
    }
@@ -284,6 +283,11 @@ public class VeinBuddyClient implements ClientModInitializer {
       refreshBuffer();
    }
 
+   /**
+    * Removes all drawn dig ranges and selected blocks in game.
+    * @param ctx
+    * @return
+    */
    private int onClearAll(CommandContext<FabricClientCommandSource> ctx) {
       selections = new ConcurrentSkipListSet<Vec3i>();
       selectionWalls = new ConcurrentHashMap<Vec3i, WallGroup>();
@@ -297,11 +301,21 @@ public class VeinBuddyClient implements ClientModInitializer {
       return 0;
    }
 
+   /**
+    * Removes drawn dig ranges player is located within. 
+    * @param ctx
+    * @return
+    */
    private int onClearNear(CommandContext<FabricClientCommandSource> ctx) {
       onClear(true);
       return 0;
    }
 
+   /**
+    * Removes drawn dig ranges player is located outside of.
+    * @param ctx
+    * @return
+    */
    private int onClearFar(CommandContext<FabricClientCommandSource> ctx) {
       onClear(false);
       return 0;
@@ -350,14 +364,9 @@ public class VeinBuddyClient implements ClientModInitializer {
          nearSelectionsGroups.add(find(selectionGroup, selection));
       }
       for (Vec3i selection : selections) {
-         if (clearNear) {
-            if (nearSelectionsGroups.contains(find(selectionGroup, selection))) {
-               removeSelection(selection, true);
-            }
-         } else {
-            if (!nearSelectionsGroups.contains(find(selectionGroup, selection))) {
-               removeSelection(selection, true);
-            }
+         Vec3i targetGroup = find(selectionGroup, selection);
+         if (clearNear == nearSelectionsGroups.contains(targetGroup)) {
+            removeSelection(selection, true);
          }
       }
       changeNumber += 1;
@@ -365,21 +374,31 @@ public class VeinBuddyClient implements ClientModInitializer {
       refreshBuffer();
    }
 
-   private int onHideOutlines(CommandContext<FabricClientCommandSource> ctx) {
-      showOutlines = false;
+   /**
+    * Shows ___ if disabled, hides if already enabled.
+    * @param ctx
+    * @return
+    */
+   private int onToggleOutlines(CommandContext<FabricClientCommandSource> ctx) {
+      showOutlines = !showOutlines;
       return 0;
    }
 
-   private int onShowOutlines(CommandContext<FabricClientCommandSource> ctx) {
-      showOutlines = true;
-      return 0;
-   }
-
+   /**
+    * Disables are veinbuddy related ingame drawnings.
+    * @param ctx
+    * @return
+    */
    private int onToggleRender(CommandContext<FabricClientCommandSource> ctx) {
       render = !render;
       return 0;
    }
 
+   /**
+    * Sets the size of the dig range when selecting an ore focus block.
+    * @param ctx
+    * @return
+    */
    private int onSetDigRange(CommandContext<FabricClientCommandSource> ctx) {
       int x = IntegerArgumentType.getInteger(ctx, "x");
       int y = IntegerArgumentType.getInteger(ctx, "y");
@@ -1176,115 +1195,5 @@ public class VeinBuddyClient implements ClientModInitializer {
       buffer.vertex(mat, maxX, maxY, maxZ).color(0xFF000000);
       buffer.vertex(mat, maxX, minY, minZ).color(0xFF000000);
       buffer.vertex(mat, maxX, maxY, minZ).color(0xFF000000);
-   }
-
-   private class WallVertexGroup {
-      public Vector3f v00, v01, v10, v11;
-
-      public WallVertexGroup() {
-      }
-
-      public void updateGroup(Vector3f v00, Vector3f v01, Vector3f v10, Vector3f v11) {
-         this.v00 = v00;
-         this.v01 = v01;
-         this.v10 = v10;
-         this.v11 = v11;
-      }
-   }
-
-   private class WallGroup {
-      protected Vector3f v000, v001, v010, v011, v100, v101, v110, v111;
-      protected WallVertexGroup west, east, down, up, south, north;
-      protected int size;
-
-      public WallGroup() {
-         this(false, false, false, false, false, false);
-      }
-
-      public WallGroup(boolean pWest, boolean pEast, boolean pDown, boolean pUp, boolean pSouth, boolean pNorth) {
-         west = pWest ? new WallVertexGroup() : null;
-         east = pEast ? new WallVertexGroup() : null;
-         down = pDown ? new WallVertexGroup() : null;
-         up = pUp ? new WallVertexGroup() : null;
-         south = pSouth ? new WallVertexGroup() : null;
-         north = pNorth ? new WallVertexGroup() : null;
-         size = 0;
-         size = pWest ? size : size + 1;
-         size = pEast ? size : size + 1;
-         size = pDown ? size : size + 1;
-         size = pUp ? size : size + 1;
-         size = pSouth ? size : size + 1;
-         size = pNorth ? size : size + 1;
-         v000 = null;
-         v001 = null;
-         v010 = null;
-         v011 = null;
-         v100 = null;
-         v101 = null;
-         v110 = null;
-         v111 = null;
-      }
-
-      public int getSize() {
-         return size;
-      }
-
-      public WallVertexGroup getWestWall() {
-         if (west != null)
-            west.updateGroup(v000, v001, v010, v011);
-         return west;
-      }
-
-      public WallVertexGroup getEastWall() {
-         if (east != null)
-            east.updateGroup(v100, v101, v110, v111);
-         return east;
-      }
-
-      public WallVertexGroup getDownWall() {
-         if (down != null)
-            down.updateGroup(v000, v001, v100, v101);
-         return down;
-      }
-
-      public WallVertexGroup getUpWall() {
-         if (up != null)
-            up.updateGroup(v010, v011, v110, v111);
-         return up;
-      }
-
-      public WallVertexGroup getSouthWall() {
-         if (south != null)
-            south.updateGroup(v000, v010, v100, v110);
-         return south;
-      }
-
-      public WallVertexGroup getNorthWall() {
-         if (north != null)
-            north.updateGroup(v001, v011, v101, v111);
-         return north;
-      }
-
-      public void putVertex(Vector3f vec, boolean east, boolean up, boolean north) {
-         boolean west = !east;
-         boolean down = !up;
-         boolean south = !north;
-         if (west && down && south)
-            v000 = vec;
-         if (west && down && north)
-            v001 = vec;
-         if (west && up && south)
-            v010 = vec;
-         if (west && up && north)
-            v011 = vec;
-         if (east && down && south)
-            v100 = vec;
-         if (east && down && north)
-            v101 = vec;
-         if (east && up && south)
-            v110 = vec;
-         if (east && up && north)
-            v111 = vec;
-      }
    }
 }
