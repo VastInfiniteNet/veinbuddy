@@ -12,7 +12,6 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileWriter;
 import java.io.InputStream;
 import java.io.IOException;
@@ -204,6 +203,96 @@ public class VeinBuddyClient implements ClientModInitializer {
       return null;
    }
 
+   private void onStart(MinecraftClient client) {
+      readConfigFile(client);
+      readSaveFile(client);
+
+      updateWalls();
+      refreshBuffer();
+   }
+
+
+   private void readConfigFile(MinecraftClient client) {
+      File configFile = getConfigFile(client);
+
+      if (configFile == null || !configFile.exists()) {
+         LOGGER.warn("No config file found.");
+         return;
+      }
+      
+      try (Scanner sc = new Scanner(configFile)) {
+         int x = sc.nextInt();
+         int y = sc.nextInt();
+         int z = sc.nextInt();
+         digRange = new Vec3i(x, y, z);
+         LOGGER.info("Loaded config file.");
+      } catch (IOException e) {
+         LOGGER.error("Error reading config file", e);
+      }
+   }
+
+   private void readSaveFile(MinecraftClient client) {
+      File saveFile = getSaveFile(client);
+      
+      if (saveFile == null || !saveFile.exists()) {
+         LOGGER.info("No save file found.");
+         return;
+      }
+      try (Scanner sc = new Scanner(saveFile)) {
+         int version = 1;
+         if (!sc.hasNextInt()) {
+            sc.next();
+            if (sc.hasNextInt()) {
+               version = sc.nextInt();
+            }
+         }
+         sc.nextLine();
+         if (version == 1) { // Version 1
+            LOGGER.debug("Loading Version 1 selections save file.");
+            while (sc.hasNext()) {
+               int x = sc.nextInt();
+               int y = sc.nextInt();
+               int z = sc.nextInt();
+               addSelection(new Vec3i(x, y, z), 
+                  new Vec3i(DEFAULT_DIG_RANGE_RADIUS, DEFAULT_DIG_RANGE_RADIUS, DEFAULT_DIG_RANGE_RADIUS),
+                  true);
+               sc.nextLine();
+            }
+         } else if (version == 2) { // Version 2
+            LOGGER.info("Loading Version 2 selections save file.");
+            sc.nextLine();
+            while (sc.hasNext()) {
+               int x = sc.nextInt();
+               int y = sc.nextInt();
+               int z = sc.nextInt();
+               int xRange = sc.nextInt();
+               int yRange = sc.nextInt();
+               int zRange = sc.nextInt();
+               LOGGER.info(String.format("Loading selection %d %d %d, %d %d %d", 
+                  x, y, z, xRange, yRange, zRange));
+               addSelection(new Vec3i(x, y, z), new Vec3i(xRange, yRange, zRange), true);
+               sc.nextLine();
+            }
+         } else {
+            LOGGER.warn("Failed to load unsupported save file format.");
+            return;
+         }
+         LOGGER.info("Loaded save file.");
+      } catch (Exception e) {
+         LOGGER.error("Failed to load selections save file.", e);
+      }
+   }
+
+   private void saveConfigFile() {
+      try (FileWriter fileWriter = new FileWriter(getConfigFile(MC), false)) {
+         fileWriter.write(String.format("%d %d %d\n", 
+            digRange.getX(), digRange.getY(), digRange.getZ()));
+         LOGGER.info("Save new dig range to config file.");
+      } catch (IOException e) {
+         LOGGER.error("Failed to save dig range.", e);
+      }
+   }
+
    private void saveSelections(MinecraftClient client) {
       if (!(changeNumber > saveNumber))
          return;
@@ -228,61 +317,6 @@ public class VeinBuddyClient implements ClientModInitializer {
       } catch (IOException e) {
          LOGGER.error("Failed to save current selections", e);
       }
-   }
-
-   private void onStart(MinecraftClient client) {
-      File configFile = getConfigFile(client);
-      File saveFile = getSaveFile(client);
-      if (configFile != null) {
-         try (Scanner sc = new Scanner(configFile)) {
-            int x = sc.nextInt();
-            int y = sc.nextInt();
-            int z = sc.nextInt();
-            digRange = new Vec3i(x, y, z);
-            LOGGER.info("Loaded config file.");
-         } catch (FileNotFoundException e) {
-            LOGGER.info("No config file found.");
-         }
-      } else {
-         LOGGER.info("No config file found.");
-      }
-      if (saveFile == null) {
-         LOGGER.info("No save file found.");
-         return;
-      }
-      try (Scanner sc = new Scanner(saveFile)) {
-         String found = sc.next("Version \\d*");
-         if (found == null) { // Version 1
-            LOGGER.debug("Loading Version 1 selections save file.");
-            while (sc.hasNext()) {
-               int x = sc.nextInt();
-               int y = sc.nextInt();
-               int z = sc.nextInt();
-               addSelection(new Vec3i(x, y, z), 
-                  new Vec3i(DEFAULT_DIG_RANGE_RADIUS, DEFAULT_DIG_RANGE_RADIUS, DEFAULT_DIG_RANGE_RADIUS),
-                  true);
-               sc.nextLine();
-            }
-         } else if (found == "Version 2") { // Version 2
-            LOGGER.debug("Loading Version 2 selections save file.");
-            sc.nextLine();
-            while (sc.hasNext()) {
-               int x = sc.nextInt();
-               int y = sc.nextInt();
-               int z = sc.nextInt();
-               int xRange = sc.nextInt();
-               int yRange = sc.nextInt();
-               int zRange = sc.nextInt();
-               addSelection(new Vec3i(x, y, z), new Vec3i(xRange, yRange, zRange), true);
-               sc.nextLine();
-            }
-         }
-         LOGGER.info("Loaded save file.");
-      } catch (IOException e) {
-         LOGGER.error("Failed to load selections save file.", e);
-      }
-      updateWalls();
-      refreshBuffer();
    }
 
    /**
@@ -406,12 +440,7 @@ public class VeinBuddyClient implements ClientModInitializer {
       int y = IntegerArgumentType.getInteger(ctx, "y");
       int z = IntegerArgumentType.getInteger(ctx, "z");
       digRange = new Vec3i(x, y, z);
-      try (FileWriter fileWriter = new FileWriter(getConfigFile(MC), false)) {
-         fileWriter.write(String.format("%d %d %d\n", x, y, z));
-         LOGGER.info("Save new dig range to config file.");
-      } catch (IOException e) {
-         LOGGER.error("Failed to save dig range.", e);
-      }
+      saveConfigFile();
 
       return 0;
    }
