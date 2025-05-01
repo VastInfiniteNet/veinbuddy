@@ -28,6 +28,7 @@ import java.util.Set;
 import java.util.Scanner;
 
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gl.ShaderProgramKeys;
 import net.minecraft.client.render.*;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.client.network.ServerInfo;
@@ -62,7 +63,7 @@ public class VeinBuddyClient implements ClientModInitializer {
    private final static MinecraftClient MC = MinecraftClient.getInstance();
    private final static double SPEED = 0.2f;
    private final static double RADIUS = 0.5;
-   private final static double PLACE_RANGE = 6.0;
+   private final static double PLACE_RANGE = 5.0;
    private final static int MAX_TICKS = (int) (PLACE_RANGE / SPEED);
    private final static int DELAY = 5;
    private final static int MAX_DIG_RANGE_RADIUS = 16;
@@ -233,50 +234,52 @@ public class VeinBuddyClient implements ClientModInitializer {
 
    private void readSaveFile(MinecraftClient client) {
       File saveFile = getSaveFile(client);
-      
       if (saveFile == null || !saveFile.exists()) {
          LOGGER.info("No save file found.");
          return;
       }
+      
       try (Scanner sc = new Scanner(saveFile)) {
          int version = 1;
-         if (!sc.hasNextInt()) {
-            sc.next();
-            if (sc.hasNextInt()) {
+         if (!sc.hasNextInt()) { // check for Version keyword
+            if ( sc.next().equals("Version") && sc.hasNextInt()) { // check if a version number follows Version keyword
                version = sc.nextInt();
             }
-         }
-         sc.nextLine();
-         if (version == 1) { // Version 1
-            LOGGER.debug("Loading Version 1 selections save file.");
-            while (sc.hasNext()) {
-               int x = sc.nextInt();
-               int y = sc.nextInt();
-               int z = sc.nextInt();
-               addSelection(new Vec3i(x, y, z), 
-                  new Vec3i(DEFAULT_DIG_RANGE_RADIUS, DEFAULT_DIG_RANGE_RADIUS, DEFAULT_DIG_RANGE_RADIUS),
-                  true);
-               sc.nextLine();
-            }
-         } else if (version == 2) { // Version 2
-            LOGGER.info("Loading Version 2 selections save file.");
             sc.nextLine();
-            while (sc.hasNext()) {
-               int x = sc.nextInt();
-               int y = sc.nextInt();
-               int z = sc.nextInt();
-               int xRange = sc.nextInt();
-               int yRange = sc.nextInt();
-               int zRange = sc.nextInt();
-               LOGGER.info(String.format("Loading selection %d %d %d, %d %d %d", 
-                  x, y, z, xRange, yRange, zRange));
-               addSelection(new Vec3i(x, y, z), new Vec3i(xRange, yRange, zRange), true);
-               sc.nextLine();
-            }
-         } else {
-            LOGGER.warn("Failed to load unsupported save file format.");
-            return;
          }
+         switch (version) {
+            case 1: // Version 1
+               LOGGER.debug("Loading Version 1 selections save file.");
+               while (sc.hasNext()) {
+                  int x = sc.nextInt();
+                  int y = sc.nextInt();
+                  int z = sc.nextInt();
+                  addSelection(new Vec3i(x, y, z), 
+                     new Vec3i(DEFAULT_DIG_RANGE_RADIUS, DEFAULT_DIG_RANGE_RADIUS, DEFAULT_DIG_RANGE_RADIUS),
+                     true);
+                  sc.nextLine();
+               }
+               break;
+            case 2: // Version 2
+               LOGGER.info("Loading Version 2 selections save file.");
+               sc.nextLine();
+               while (sc.hasNext()) {
+                  int x = sc.nextInt();
+                  int y = sc.nextInt();
+                  int z = sc.nextInt();
+                  int xRange = sc.nextInt();
+                  int yRange = sc.nextInt();
+                  int zRange = sc.nextInt();
+                  LOGGER.info(String.format("Loading selection %d %d %d, %d %d %d", 
+                     x, y, z, xRange, yRange, zRange));
+                  addSelection(new Vec3i(x, y, z), new Vec3i(xRange, yRange, zRange), true);
+                  sc.nextLine();
+               }
+            default: // unsupported save file format
+               LOGGER.warn("Failed to load unsupported save file format.");
+               return;
+         }
+
          LOGGER.info("Loaded save file.");
       } catch (Exception e) {
          LOGGER.error("Failed to load selections save file.", e);
@@ -970,7 +973,7 @@ public class VeinBuddyClient implements ClientModInitializer {
          }
       }
 
-      RenderSystem.setShader(GameRenderer::getPositionColorProgram);
+      RenderSystem.setShader(ShaderProgramKeys.POSITION_COLOR);
       RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
 
       BufferRenderer.drawWithGlobalProgram(buffer.end());
@@ -1026,14 +1029,15 @@ public class VeinBuddyClient implements ClientModInitializer {
 
       RenderSystem.enableBlend();
       RenderSystem.disableCull();
+      RenderSystem.enableDepthTest();
 
       if (updateBuffers) {
          GL30.glBindBuffer(GL30.GL_ARRAY_BUFFER, selectionVBO);
-         GL30.glBufferData(GL30.GL_ARRAY_BUFFER, selectionBuffer, GL30.GL_STATIC_DRAW);
+         GL30.glBufferData(GL30.GL_ARRAY_BUFFER, selectionBuffer, GL30.GL_DYNAMIC_DRAW);
          GL30.glBindBuffer(GL30.GL_ARRAY_BUFFER, wallVBO);
-         GL30.glBufferData(GL30.GL_ARRAY_BUFFER, wallBuffer, GL30.GL_STATIC_DRAW);
+         GL30.glBufferData(GL30.GL_ARRAY_BUFFER, wallBuffer, GL30.GL_DYNAMIC_DRAW);
          GL30.glBindBuffer(GL30.GL_ARRAY_BUFFER, gridVBO);
-         GL30.glBufferData(GL30.GL_ARRAY_BUFFER, gridBuffer, GL30.GL_STATIC_DRAW);
+         GL30.glBufferData(GL30.GL_ARRAY_BUFFER, gridBuffer, GL30.GL_DYNAMIC_DRAW);
       }
 
       GL30.glBindBuffer(GL30.GL_ARRAY_BUFFER, selectionVBO);
