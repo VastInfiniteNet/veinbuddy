@@ -77,7 +77,7 @@ public class VeinBuddyClient implements ClientModInitializer {
    private boolean change = true;
    private int saveNumber = 0;
    private int changeNumber = 0;
-   private boolean showOutlines = false;
+   private boolean showOutlines = true;
    private boolean render = true;
 
    private Set<Vec3i> selections = new ConcurrentSkipListSet<Vec3i>();
@@ -1033,11 +1033,11 @@ public class VeinBuddyClient implements ClientModInitializer {
 
       if (updateBuffers) {
          GL30.glBindBuffer(GL30.GL_ARRAY_BUFFER, selectionVBO);
-         GL30.glBufferData(GL30.GL_ARRAY_BUFFER, selectionBuffer, GL30.GL_DYNAMIC_DRAW);
+         GL30.glBufferData(GL30.GL_ARRAY_BUFFER, selectionBuffer, GL30.GL_STATIC_DRAW);
          GL30.glBindBuffer(GL30.GL_ARRAY_BUFFER, wallVBO);
-         GL30.glBufferData(GL30.GL_ARRAY_BUFFER, wallBuffer, GL30.GL_DYNAMIC_DRAW);
+         GL30.glBufferData(GL30.GL_ARRAY_BUFFER, wallBuffer, GL30.GL_STATIC_DRAW);
          GL30.glBindBuffer(GL30.GL_ARRAY_BUFFER, gridVBO);
-         GL30.glBufferData(GL30.GL_ARRAY_BUFFER, gridBuffer, GL30.GL_DYNAMIC_DRAW);
+         GL30.glBufferData(GL30.GL_ARRAY_BUFFER, gridBuffer, GL30.GL_STATIC_DRAW);
       }
 
       GL30.glBindBuffer(GL30.GL_ARRAY_BUFFER, selectionVBO);
